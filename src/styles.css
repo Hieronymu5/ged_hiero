@@ -130,8 +130,10 @@ button { cursor: pointer; }
   position: sticky; top: 0; z-index: 10;
 }
 .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.brand-mark { color: var(--accent); font-size: 1.4rem; }
-.brand-name { font-weight: 700; font-size: 1.1rem; }
+.brand-name {
+  display: block; height: 31px; aspect-ratio: 49 / 33; overflow: visible;
+  fill: currentColor; font-family: var(--font); font-weight: 700;
+}
 .file-chip {
   background: var(--surface-2); border-radius: 999px; padding: 2px 10px; font-size: 0.82rem;
   max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -302,9 +304,12 @@ tbody tr.selected { background: var(--accent-wash); }
 }
 @media (max-width: 560px) {
   .segmented-label { display: none; }
-  .file-chip, .brand-name { display: none; }
-  .topbar { padding: 8px 16px; }
-  .file-chip { max-width: 120px; }
+  .file-chip { display: none; }
+  .topbar { padding: 8px 16px; gap: 8px; }
+  .brand { gap: 8px; }
+  .brand .link-button { font-size: 0.82rem; line-height: 1.2; text-align: left; }
+  .topbar-actions { gap: 6px; }
+  .topbar .segmented button { padding: 4px 9px; }
 }
 
 app-generation-chart, app-ancestry-map, app-generation-stepper, app-person-search, app-file-upload { display: block; }
