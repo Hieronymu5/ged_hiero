@@ -4,7 +4,7 @@ Angular app for exploring GEDCOM (`.ged`) files entirely in the browser:
 
 - **Upload** a GEDCOM file (drag & drop or file picker; UTF-8, UTF-16 and Windows-1252 are detected), or try the fictional sample at `public/samples/sample.ged`.
 - **Search** for a person by name (add a birth/death year to narrow it down, e.g. `Jansen 1850`).
-- See **how many generations** of ancestors are recorded, and **step through each generation** (buttons, slider, ←/→ keys, or click a column in the chart).
+- See **how many generations** of ancestors are recorded, and **step through each generation** (buttons, slider, ←/→ keys, or click a column in the chart), or press **play** (or Space) to animate from the oldest generation to the selected person.
 - **Chart** of people per generation, oldest on the left leading up to the selected person, with a table view. Pedigree collapse (the same ancestor reached through several lines) is counted once.
 - **Map** of the selected generation, with lines to where their children were born. Detailed municipality/district maps of the **Netherlands, Belgium and Germany** are loaded only for the countries the ancestors actually lived in. Zoom with the scroll wheel or the +/− buttons, and drag to pan.
 - **Show children** toggle: show or hide where each ancestor's children were born, and the lines to them.

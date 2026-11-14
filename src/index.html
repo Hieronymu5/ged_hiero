@@ -13,6 +13,19 @@
       var t = localStorage.getItem('ged-hiero-theme');
       if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
     } catch (e) {}
+    // Mirror the language choice (saved, else the browser's) so the page is tagged correctly early.
+    try {
+      var l = localStorage.getItem('ged-hiero-lang');
+      if (l !== 'en' && l !== 'nl') {
+        l = 'en';
+        var prefs = navigator.languages || [navigator.language];
+        for (var i = 0; i < prefs.length; i++) {
+          var base = String(prefs[i]).toLowerCase().split('-')[0];
+          if (base === 'en' || base === 'nl') { l = base; break; }
+        }
+      }
+      document.documentElement.lang = l;
+    } catch (e) {}
   </script>
 </head>
 <body>

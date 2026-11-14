@@ -4,20 +4,20 @@
     <span class="brand-name">Hiero</span>
     @if (store.fileName(); as name) {
       <span class="file-chip" [title]="name">{{ name }}</span>
-      <span class="muted small hide-narrow">{{ store.tree()!.people.size.toLocaleString() }} people</span>
-      <button type="button" class="link-button" (click)="store.reset()">Open another file</button>
+      <span class="muted small hide-narrow">{{ i18n.t('topbar.people', { count: store.tree()!.people.size }) }}</span>
+      <button type="button" class="link-button" (click)="store.reset()">{{ i18n.t('topbar.openAnother') }}</button>
     }
   </div>
-  <app-theme-toggle />
+  <div class="topbar-actions">
+    <app-language-switcher />
+    <app-theme-toggle />
+  </div>
 </header>
 
 @if (!store.tree()) {
   <main class="welcome">
-    <h1>Explore where your ancestors came from</h1>
-    <p class="lede">
-      Load a GEDCOM file, pick a person, and step back through every generation of their ancestors
-      on detailed maps of the Netherlands, Belgium and Germany.
-    </p>
+    <h1>{{ i18n.t('welcome.title') }}</h1>
+    <p class="lede">{{ i18n.t('welcome.lede') }}</p>
     <app-file-upload />
   </main>
 } @else {
@@ -29,15 +29,12 @@
 
       @if (store.root(); as root) {
         <section class="card root-card">
-          <span class="eyebrow">Selected person</span>
+          <span class="eyebrow">{{ i18n.t('root.eyebrow') }}</span>
           <h2>{{ root.fullName }}</h2>
           @if (rootLifespan()) { <p class="muted">{{ rootLifespan() }}</p> }
           <div class="hero-figure">
             <span class="hero-value">{{ depth() }}</span>
-            <span class="hero-label">
-              {{ depth() === 1 ? 'generation' : 'generations' }} of ancestors recorded
-              · {{ totalAncestors().toLocaleString() }} ancestors in total
-            </span>
+            <span class="hero-label">{{ i18n.t('root.depth', { depth: depth(), total: totalAncestors() }) }}</span>
           </div>
         </section>
 
@@ -58,7 +55,7 @@
       </div>
     } @else {
       <div class="content empty-state">
-        <p class="muted">Search for a person on the left to see their ancestors by generation and on the map.</p>
+        <p class="muted">{{ i18n.t('empty.hint') }}</p>
       </div>
     }
   </main>

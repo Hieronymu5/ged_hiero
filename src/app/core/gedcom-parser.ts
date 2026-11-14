@@ -1,5 +1,6 @@
 import { Family, GedcomTree, GedEvent, Person, Sex } from './gedcom.model';
 import { normalizeText } from './text';
+import { Lang, translate } from './messages';
 
 interface GedNode {
   tag: string;
@@ -162,18 +163,20 @@ export function parseGedcom(text: string, encoding = 'UTF-8'): GedcomTree {
 }
 
 /** Year range label such as "1801–1872", "b. 1801" or "". */
-export function lifespan(person: Person): string {
+export function lifespan(person: Person, lang: Lang = 'en'): string {
   const born = person.birth?.year ?? person.christening?.year;
   const died = person.death?.year ?? person.burial?.year;
   if (born && died) return `${born}–${died}`;
-  if (born) return `b. ${born}`;
-  if (died) return `d. ${died}`;
+  if (born) return translate(lang, 'lifespan.born', { year: born });
+  if (died) return translate(lang, 'lifespan.died', { year: died });
   return '';
 }
 
 /** The event used to place a person on the map: birth, then baptism, death, burial. */
-export function locatingEvent(person: Person): { kind: string; event: GedEvent } | undefined {
-  const candidates: [string, GedEvent | undefined][] = [
+export type EventKind = 'born' | 'baptised' | 'died' | 'buried';
+
+export function locatingEvent(person: Person): { kind: EventKind; event: GedEvent } | undefined {
+  const candidates: [EventKind, GedEvent | undefined][] = [
     ['born', person.birth],
     ['baptised', person.christening],
     ['died', person.death],

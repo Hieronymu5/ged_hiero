@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { buildGenerations } from '../core/ancestry';
 import { lifespan } from '../core/gedcom-parser';
 import { Person } from '../core/gedcom.model';
+import { LanguageService } from '../core/language.service';
 import { normalizeText } from '../core/text';
 import { TreeStore } from '../core/tree.store';
 
@@ -12,20 +13,20 @@ const MAX_RESULTS = 50;
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="search">
-      <label class="field-label" for="person-search">Find a person</label>
+      <label class="field-label" for="person-search">{{ i18n.t('search.label') }}</label>
       <input
         id="person-search"
         type="search"
         autocomplete="off"
-        placeholder="e.g. Jan Jansen, or Jansen 1850"
+        [placeholder]="i18n.t('search.placeholder')"
         [value]="query()"
         (input)="query.set($any($event.target).value)"
         (keydown.enter)="pickFirst()"
       />
       @if (query().trim()) {
         <p class="muted small">
-          {{ matches().total.toLocaleString() }} {{ matches().total === 1 ? 'match' : 'matches' }}
-          @if (matches().total > results().length) { · showing first {{ results().length }} }
+          {{ i18n.t('search.matches', { total: matches().total }) }}
+          @if (matches().total > results().length) { · {{ i18n.t('search.showingFirst', { count: results().length }) }} }
         </p>
         <ul class="results">
           @for (r of results(); track r.person.id) {
@@ -35,7 +36,7 @@ const MAX_RESULTS = 50;
                 <span class="muted small">
                   {{ r.lifespan }}@if (r.lifespan && r.place) { · }{{ r.place }}
                 </span>
-                <span class="badge" [title]="r.depth + ' generations of ancestors recorded'">{{ r.depth }} gen</span>
+                <span class="badge" [title]="i18n.t('search.depthTitle', { depth: r.depth })">{{ i18n.t('search.depthBadge', { depth: r.depth }) }}</span>
               </button>
             </li>
           }
@@ -46,6 +47,7 @@ const MAX_RESULTS = 50;
 })
 export class PersonSearch {
   protected readonly store = inject(TreeStore);
+  protected readonly i18n = inject(LanguageService);
   protected readonly query = signal('');
 
   protected readonly matches = computed(() => {
@@ -80,7 +82,7 @@ export class PersonSearch {
       .people.slice(0, MAX_RESULTS)
       .map((person) => ({
         person,
-        lifespan: lifespan(person),
+        lifespan: lifespan(person, this.i18n.lang()),
         place: (person.birth ?? person.christening)?.place?.split(',')[0] ?? '',
         depth: buildGenerations(tree, person.id).length - 1,
       }));

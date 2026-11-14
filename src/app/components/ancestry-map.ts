@@ -15,11 +15,13 @@ import { zoom, ZoomBehavior, zoomIdentity, ZoomTransform } from 'd3-zoom';
 import { feature, mesh } from 'topojson-client';
 import type { Topology } from 'topojson-specification';
 import type { Feature, FeatureCollection, Geometry } from 'geojson';
-import { childLinks, generationLabel } from '../core/ancestry';
+import { PeriodEventKind, Step, stepCount, stepLabel } from '../core/ancestry';
 import { COUNTRIES, COUNTRY_BBOX } from '../core/countries';
-import { lifespan, locatingEvent } from '../core/gedcom-parser';
+import { EventKind, lifespan, locatingEvent } from '../core/gedcom-parser';
 import { Person } from '../core/gedcom.model';
 import { GeoPoint } from '../core/geocoder';
+import { LanguageService } from '../core/language.service';
+import { Lang, LocalizedText, translate } from '../core/messages';
 import { PlacesService } from '../core/places.service';
 import { TreeStore } from '../core/tree.store';
 import { normalizeText } from '../core/text';
@@ -42,7 +44,18 @@ interface LocatedPerson {
   person: Person;
   point: GeoPoint;
   place: string;
-  kind: string;
+  kind: EventKind;
+}
+
+/** One line in a map dot's tooltip: a person (generations) or an event (periods). */
+interface DotEntry {
+  id: string;
+  personIds: string[];
+  name: string;
+  kind: PeriodEventKind;
+  /** Event year (periods) — otherwise the person's lifespan is shown. */
+  year?: number;
+  person?: Person;
 }
 
 const topoCache = new Map<string, Promise<Topology>>();
@@ -111,8 +124,11 @@ interface FrameInput {
   colors: Colors;
   index: number;
   /** People per generation, by generation index. */
-  generations: number[];
-  rootName: string;
+  /** People per step (generation or period), by step index. */
+  counts: number[];
+  /** Step title and subtitle, already translated. */
+  title: string;
+  subtitle: string;
 }
 
 const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
@@ -125,25 +141,21 @@ function drawFrame(ctx: CanvasRenderingContext2D, f: FrameInput): void {
   ctx.fillRect(0, 0, W, HEIGHT + GIF_HEADER);
 
   // Header: generation title, count, and a mini per-generation column chart (oldest left).
-  const count = f.generations[f.index];
   ctx.fillStyle = c.text;
   ctx.font = `600 20px ${FONT}`;
   ctx.textBaseline = 'alphabetic';
-  ctx.fillText(generationLabel(f.index), 16, 28);
+  ctx.fillText(f.title, 16, 28);
   ctx.fillStyle = c.text2;
   ctx.font = `13px ${FONT}`;
-  ctx.fillText(
-    `Generation ${f.index} · ${count} ${count === 1 ? 'person' : 'people'} · ancestors of ${f.rootName}`,
-    16, 50,
-  );
-  const n = f.generations.length;
+  ctx.fillText(f.subtitle, 16, 50);
+  const n = f.counts.length;
   const chartW = Math.min(220, n * 14);
   const slot = chartW / n;
   const barW = Math.max(2, Math.min(10, slot - 2));
-  const max = Math.max(1, ...f.generations);
+  const max = Math.max(1, ...f.counts);
   const chartX = W - 16 - chartW;
   for (let i = 0; i < n; i++) {
-    const h = Math.max(1, (f.generations[i] / max) * 40);
+    const h = Math.max(1, (f.counts[i] / max) * 40);
     const x = chartX + (n - 1 - i) * slot + (slot - barW) / 2;
     ctx.fillStyle = i === f.index ? c.accent : c.accentSoft;
     ctx.fillRect(x, 52 - h, barW, h);
@@ -265,15 +277,15 @@ function drawFrame(ctx: CanvasRenderingContext2D, f: FrameInput): void {
                     [attr.r]="d.r / k()" [attr.stroke-width]="2 / k()"
                     (mouseenter)="onDotEnter($event, d.key)" (mouseleave)="hoverDot.set(null)"
                     (focus)="hoverDot.set(d.key)" (blur)="hoverDot.set(null)" tabindex="0"
-                    [attr.aria-label]="d.place + ': ' + d.people.length + ' people'" />
+                    [attr.aria-label]="dotAria(d.place, d.entries.length)" />
           }
         </g>
       </svg>
 
       <div class="map-controls">
-        <button type="button" class="icon-button" (click)="zoomBy(1.6)" aria-label="Zoom in">+</button>
-        <button type="button" class="icon-button" (click)="zoomBy(1 / 1.6)" aria-label="Zoom out">−</button>
-        <button type="button" class="icon-button" (click)="resetZoom()" aria-label="Fit to ancestors" title="Fit">⤢</button>
+        <button type="button" class="icon-button" (click)="zoomBy(1.6)" [attr.aria-label]="i18n.t('map.zoomIn')">+</button>
+        <button type="button" class="icon-button" (click)="zoomBy(1 / 1.6)" [attr.aria-label]="i18n.t('map.zoomOut')">−</button>
+        <button type="button" class="icon-button" (click)="resetZoom()" [attr.aria-label]="i18n.t('map.fit.aria')" [title]="i18n.t('map.fit.title')">⤢</button>
       </div>
 
       @if (status(); as s) { <div class="map-status">{{ s }}</div> }
@@ -284,32 +296,32 @@ function drawFrame(ctx: CanvasRenderingContext2D, f: FrameInput): void {
           @for (row of t.rows; track row.id) {
             <span>{{ row.name }} <span class="muted">{{ row.detail }}</span></span>
           }
-          @if (t.more) { <span class="muted">+{{ t.more }} more</span> }
+          @if (t.more) { <span class="muted">{{ i18n.t('map.more', { count: t.more }) }}</span> }
         </div>
       }
     </div>
     <div class="map-toolbar small">
       <div class="map-legend">
         <span><i class="key key-dot"></i>{{ label() }}</span>
-        @if (showChildren()) { <span><i class="key key-child"></i>their children</span> }
-        <span><i class="key key-ghost"></i>other ancestors</span>
+        @if (showChildren() && !periodMode()) { <span><i class="key key-child"></i>{{ i18n.t('map.legendChildren') }}</span> }
+        <span><i class="key key-ghost"></i>{{ i18n.t('map.legendOthers') }}</span>
       </div>
       <div class="map-actions">
-        <label class="check">
+        <label class="check" [title]="periodMode() ? i18n.t('map.showParents.title') : ''">
           <input type="checkbox" [checked]="showChildren()" (change)="setShowChildren($any($event.target).checked)" />
-          Show children
+          {{ i18n.t(periodMode() ? 'map.showParents' : 'map.showChildren') }}
         </label>
-        <select [value]="gifOrder()" (change)="gifOrder.set($any($event.target).value)" aria-label="Animation order"
+        <select [value]="gifOrder()" (change)="gifOrder.set($any($event.target).value)" [attr.aria-label]="i18n.t('map.order.aria')"
                 [disabled]="!!exporting()">
-          <option value="oldest-first">Oldest → selected person</option>
-          <option value="root-first">Selected person → oldest</option>
+          <option value="oldest-first">{{ i18n.t('map.order.oldestFirst') }}</option>
+          <option value="root-first">{{ i18n.t('map.order.rootFirst') }}</option>
         </select>
         <button type="button" class="button" (click)="exportGif()" [disabled]="!!exporting()">
-          {{ exporting() ?? 'Save as GIF' }}
+          {{ exporting()?.(i18n.lang()) ?? i18n.t('map.saveGif') }}
         </button>
       </div>
     </div>
-    @if (exportError(); as e) { <p class="error small map-note">{{ e }}</p> }
+    @if (exportError(); as e) { <p class="error small map-note">{{ e(i18n.lang()) }}</p> }
     <p class="attribution">
       Boundaries © geoBoundaries (PDOK CC0, Statbel ODbL, BKG dl-de/by-2-0) · Natural Earth · Places © GeoNames (CC BY 4.0)
     </p>
@@ -320,6 +332,7 @@ export class AncestryMap {
 
   private readonly store = inject(TreeStore);
   private readonly places = inject(PlacesService);
+  protected readonly i18n = inject(LanguageService);
   private readonly svgRef = viewChild.required<ElementRef<SVGSVGElement>>('svg');
   private readonly frameRef = viewChild.required<ElementRef<HTMLDivElement>>('frame');
 
@@ -338,10 +351,31 @@ export class AncestryMap {
   protected readonly showChildren = signal(readShowChildren());
   protected readonly gifOrder = signal<'oldest-first' | 'root-first'>('oldest-first');
   /** Progress label while a GIF is being rendered, null when idle. */
-  protected readonly exporting = signal<string | null>(null);
-  protected readonly exportError = signal<string | null>(null);
+  protected readonly exporting = signal<LocalizedText | null>(null);
+  protected readonly exportError = signal<LocalizedText | null>(null);
 
-  protected readonly label = computed(() => generationLabel(this.store.generationIndex()));
+  /** Legend text for the highlighted dots: "Grandparents" or "born 1850–1899". */
+  protected readonly label = computed(() => {
+    const step = this.store.currentStep();
+    if (!step) return '';
+    const name = stepLabel(step, this.i18n.lang());
+    return step.kind === 'period' ? this.i18n.t('map.legendPeriod', { label: name }) : name;
+  });
+
+  protected readonly periodMode = computed(() => this.store.mode() === 'periods');
+
+  /** Every dated event of the selected person and ancestors that has a resolvable location. */
+  private readonly eventPoints = computed(() => {
+    this.places.version();
+    const points: GeoPoint[] = [];
+    for (const period of this.store.periods().periods) {
+      for (const e of period.events) {
+        const point = this.places.locate(e.event);
+        if (point) points.push(point);
+      }
+    }
+    return points;
+  });
 
   /** Every ancestor (all generations) with a resolvable location. */
   private readonly located = computed(() => {
@@ -358,9 +392,15 @@ export class AncestryMap {
     return byId;
   });
 
+  /** Everything that can appear on the map, in either view; used to fit and load maps. */
+  private readonly allPoints = computed(() => [
+    ...[...this.located().values()].map((l) => l.point),
+    ...this.eventPoints(),
+  ]);
+
   private readonly neededCountries = computed(() => {
     const codes = new Set<string>();
-    for (const { point } of this.located().values()) {
+    for (const point of this.allPoints()) {
       const code = countryOf(point);
       if (code) codes.add(code);
     }
@@ -368,7 +408,7 @@ export class AncestryMap {
   });
 
   private readonly projection = computed<GeoProjection>(() => {
-    const pts = [...this.located().values()].map((l) => [l.point.lon, l.point.lat]);
+    const pts = this.allPoints().map((p) => [p.lon, p.lat]);
     const projection = geoMercator();
     const extent: [[number, number], [number, number]] = [[PAD, PAD], [WIDTH - PAD, HEIGHT - PAD]];
     if (pts.length) {
@@ -420,12 +460,10 @@ export class AncestryMap {
     return this.projection()([point.lon, point.lat]);
   }
 
-  /** Dots, ghosts, child links and child dots for one generation (used on screen and for GIF frames). */
-  private layersFor(index: number, highlight: string | null) {
+  /** Dots, ghosts, child links and child dots for one step (used on screen and for GIF frames). */
+  private layersFor(step: Step | null, highlight: string | null) {
     const located = this.located();
-    const generations = this.store.generations();
-    const tree = this.store.tree();
-    const people = generations[index]?.people ?? [];
+    const people = step?.people ?? [];
     const currentIds = new Set(people.map((p) => p.id));
 
     const seen = new Set<string>();
@@ -440,50 +478,68 @@ export class AncestryMap {
       ghosts.push({ key, x: xy[0], y: xy[1] });
     }
 
-    const groups = new Map<string, { key: string; x: number; y: number; place: string; people: LocatedPerson[] }>();
-    for (const person of people) {
-      const l = located.get(person.id);
-      const xy = l && this.project(l.point);
-      if (!l || !xy) continue;
-      const key = `${l.point.lat},${l.point.lon}`;
-      const group = groups.get(key) ?? { key, x: xy[0], y: xy[1], place: l.place.split(',')[0], people: [] };
-      group.people.push(l);
-      groups.set(key, group);
+    // Generations: one entry per person at their locating place. Periods: one per event, at its place.
+    type Group = { key: string; x: number; y: number; place: string; fullPlace: string; entries: DotEntry[] };
+    const groups = new Map<string, Group>();
+    const add = (point: GeoPoint, place: string, entry: DotEntry) => {
+      const xy = this.project(point);
+      if (!xy) return;
+      const key = `${point.lat},${point.lon}`;
+      let group = groups.get(key);
+      if (!group) {
+        group = { key, x: xy[0], y: xy[1], place: place.split(',')[0], fullPlace: place, entries: [] };
+        groups.set(key, group);
+      }
+      group.entries.push(entry);
+    };
+    if (step?.kind === 'period') {
+      for (const e of step.events) {
+        const point = this.places.locate(e.event);
+        if (!point) continue;
+        add(point, e.event.place ?? '', {
+          id: e.id,
+          personIds: e.people.map((p) => p.id),
+          name: e.people.map((p) => p.fullName).join(' & '),
+          kind: e.kind,
+          year: e.year,
+        });
+      }
+    } else {
+      for (const person of people) {
+        const l = located.get(person.id);
+        if (!l) continue;
+        add(l.point, l.place, { id: person.id, personIds: [person.id], name: person.fullName, kind: l.kind, person });
+      }
     }
     const dots = [...groups.values()]
       .map((g) => ({
         ...g,
-        r: 4.5 + Math.sqrt(g.people.length - 1) * 2.5,
-        highlight: !!highlight && g.people.some((p) => p.person.id === highlight),
+        r: 4.5 + Math.sqrt(g.entries.length - 1) * 2.5,
+        highlight: !!highlight && g.entries.some((e) => e.personIds.includes(highlight)),
       }))
       .sort((a, b) => b.r - a.r);
 
-    // Lines from each ancestor in this generation to where their child was born.
+    // Lines from each person in this step to where their child (the next one down the line) was born.
     const links: { key: string; x1: number; y1: number; x2: number; y2: number }[] = [];
-    if (tree) {
-      for (const { parent, child } of childLinks(tree, generations, index)) {
-        const a = located.get(parent.id);
-        const b = located.get(child.id);
-        const p1 = a && this.project(a.point);
-        const p2 = b && this.project(b.point);
-        if (!p1 || !p2 || (p1[0] === p2[0] && p1[1] === p2[1])) continue;
-        links.push({ key: `${parent.id}>${child.id}`, x1: p1[0], y1: p1[1], x2: p2[0], y2: p2[1] });
-      }
-    }
-
     const children = new Map<string, { key: string; x: number; y: number }>();
-    if (index > 0) {
-      for (const person of generations[index - 1]?.people ?? []) {
-        const l = located.get(person.id);
-        const xy = l && this.project(l.point);
-        if (xy) children.set(`${xy[0]},${xy[1]}`, { key: `${xy[0]},${xy[1]}`, x: xy[0], y: xy[1] });
+    for (const { parent, child } of step ? this.store.childLinksFor(step) : []) {
+      const a = located.get(parent.id);
+      const b = located.get(child.id);
+      const p1 = a && this.project(a.point);
+      const p2 = b && this.project(b.point);
+      if (!p2) continue;
+      // In the period view the child's birth is already one of the event dots.
+      if (step?.kind !== 'period') {
+        children.set(`${p2[0]},${p2[1]}`, { key: `${p2[0]},${p2[1]}`, x: p2[0], y: p2[1] });
       }
+      if (!p1 || (p1[0] === p2[0] && p1[1] === p2[1])) continue;
+      links.push({ key: `${parent.id}>${child.id}`, x1: p1[0], y1: p1[1], x2: p2[0], y2: p2[1] });
     }
     return { ghosts, dots, links, children: [...children.values()] };
   }
 
   private readonly layers = computed(() =>
-    this.layersFor(this.store.generationIndex(), this.highlightPersonId()),
+    this.layersFor(this.store.currentStep(), this.highlightPersonId()),
   );
   protected readonly ghosts = computed(() => this.layers().ghosts);
   protected readonly dots = computed(() => this.layers().dots);
@@ -499,26 +555,37 @@ export class AncestryMap {
     return {
       x,
       y,
-      place: dot.people[0].place || dot.place,
-      rows: dot.people.slice(0, max).map((p) => ({
-        id: p.person.id,
-        name: p.person.fullName,
-        detail: [p.kind, lifespan(p.person)].filter(Boolean).join(' · '),
+      place: dot.fullPlace || dot.place,
+      rows: dot.entries.slice(0, max).map((e) => ({
+        id: e.id,
+        name: e.name,
+        detail:
+          e.year !== undefined
+            ? `${this.i18n.t(`event.${e.kind}`)} ${e.year}`
+            : [this.i18n.t(`event.${e.kind}`), e.person ? lifespan(e.person, this.i18n.lang()) : '']
+                .filter(Boolean)
+                .join(' · '),
       })),
-      more: Math.max(0, dot.people.length - max),
+      more: Math.max(0, dot.entries.length - max),
     };
   });
 
   protected readonly status = computed(() => {
-    if (this.loadingPlaces()) return 'Looking up places…';
-    const gen = this.store.currentGeneration();
-    if (gen && !this.dots().length) return 'No mappable places in this generation';
+    if (this.loadingPlaces()) return this.i18n.t('map.lookingUp');
+    const step = this.store.currentStep();
+    if (step && !this.dots().length) {
+      return this.i18n.t(step.kind === 'period' ? 'map.noPlacesPeriod' : 'map.noPlaces');
+    }
     return null;
   });
 
-  protected readonly ariaLabel = computed(
-    () => `Map of ${this.label().toLowerCase()}: ${this.dots().map((d) => `${d.place} (${d.people.length})`).join(', ')}`,
-  );
+  protected readonly ariaLabel = computed(() => {
+    const step = this.store.currentStep();
+    const list = this.dots().map((d) => `${d.place} (${d.entries.length})`).join(', ');
+    return step?.kind === 'period'
+      ? this.i18n.t('map.ariaPeriod', { label: stepLabel(step, this.i18n.lang()), list })
+      : this.i18n.t('map.aria', { label: this.label(), list });
+  });
 
   constructor() {
     loadTopology('data/maps/world-50m.json').then((t) => this.world.set(t), () => undefined);
@@ -531,6 +598,10 @@ export class AncestryMap {
           const place = locatingEvent(person)?.event.place;
           if (place) placeStrings.add(place);
         }
+      }
+      // Places of all other events too (deaths, marriages, ...), for the period view.
+      for (const period of this.store.periods().periods) {
+        for (const e of period.events) if (e.event.place) placeStrings.add(e.event.place);
       }
       if (!placeStrings.size) return;
       this.loadingPlaces.set(true);
@@ -573,13 +644,16 @@ export class AncestryMap {
     }
   }
 
-  /** Renders every generation (with the current zoom, theme and children setting) into an animated GIF. */
+  /** Renders every step (with the current view, zoom, theme and children setting) into an animated GIF. */
   async exportGif(): Promise<void> {
-    const generations = this.store.generations();
+    // Snapshot the steps so switching view mode mid-export can't mix frames.
+    const steps = this.store.steps();
     const root = this.store.root();
-    if (!generations.length || !root) return;
+    if (!steps.length || !root) return;
     this.exportError.set(null);
-    this.exporting.set('Preparing…');
+    // The GIF uses the language active when the export starts.
+    const lang = this.i18n.lang();
+    this.exporting.set((l) => translate(l, 'map.preparing'));
     try {
       const { GIFEncoder, quantize, applyPalette } = await import('gifenc');
       const canvas = document.createElement('canvas');
@@ -587,21 +661,23 @@ export class AncestryMap {
       canvas.height = HEIGHT + GIF_HEADER;
       const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
       const colors = readColors();
-      const order = generations.map((g) => g.index);
+      const order = steps.map((s) => s.index);
       if (this.gifOrder() === 'oldest-first') order.reverse();
       const gif = GIFEncoder();
       for (let i = 0; i < order.length; i++) {
-        this.exporting.set(`Rendering ${i + 1}/${order.length}…`);
+        const frame = i + 1;
+        this.exporting.set((l) => translate(l, 'map.rendering', { frame, total: order.length }));
         await new Promise((r) => setTimeout(r)); // let the progress label paint
         drawFrame(ctx, {
           base: this.base(),
-          layers: this.layersFor(order[i], null),
+          layers: this.layersFor(steps[order[i]], null),
           transform: this.transform(),
           showChildren: this.showChildren(),
           colors,
           index: order[i],
-          generations: generations.map((g) => g.people.length),
-          rootName: root.fullName,
+          counts: steps.map(stepCount),
+          title: stepLabel(steps[order[i]], lang),
+          subtitle: this.gifSubtitle(steps[order[i]], root.fullName, lang),
         });
         const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const palette = quantize(data, 256);
@@ -616,14 +692,28 @@ export class AncestryMap {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `ancestors-${slug(root.fullName)}.gif`;
+      a.download = `${translate(lang, 'map.gifFile')}-${slug(root.fullName)}.gif`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (err) {
-      this.exportError.set(`Could not create the GIF: ${err instanceof Error ? err.message : err}`);
+      const message = err instanceof Error ? err.message : String(err);
+      this.exportError.set((l) => translate(l, 'map.gifError', { message }));
     } finally {
       this.exporting.set(null);
     }
+  }
+
+  protected dotAria(place: string, count: number): string {
+    return this.periodMode()
+      ? this.i18n.t('map.dotAriaEvents', { place, count })
+      : this.i18n.t('map.dotAria', { place, count });
+  }
+
+  private gifSubtitle(step: Step, name: string, lang: Lang): string {
+    const count = stepCount(step);
+    return step.kind === 'period'
+      ? translate(lang, 'map.gifSubtitlePeriod', { count, name })
+      : translate(lang, 'map.gifSubtitle', { index: step.index, count, name });
   }
 
   protected zoomBy(factor: number): void {

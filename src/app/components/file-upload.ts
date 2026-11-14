@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { LanguageService } from '../core/language.service';
 import { TreeStore } from '../core/tree.store';
 
 @Component({
@@ -15,21 +16,22 @@ import { TreeStore } from '../core/tree.store';
       <input type="file" accept=".ged,.gedcom,text/plain" (change)="onPick($event)" />
       <span class="dropzone-icon" aria-hidden="true">⇪</span>
       <span class="dropzone-title">
-        @if (store.loading()) { Reading file… } @else { Drop a GEDCOM file here, or click to choose one }
+        {{ store.loading() ? i18n.t('upload.reading') : i18n.t('upload.prompt') }}
       </span>
-      <span class="muted">.ged files from Gramps, MyHeritage, Ancestry, Aldfaer and others. The file stays in your browser.</span>
+      <span class="muted">{{ i18n.t('upload.hint') }}</span>
     </label>
     <p class="small">
-      No file at hand?
-      <button type="button" class="link-button" (click)="store.loadSample()">Try a fictional sample tree</button>
+      {{ i18n.t('upload.noFile') }}
+      <button type="button" class="link-button" (click)="store.loadSample()">{{ i18n.t('upload.sample') }}</button>
     </p>
     @if (store.error(); as error) {
-      <p class="error" role="alert">{{ error }}</p>
+      <p class="error" role="alert">{{ error(i18n.lang()) }}</p>
     }
   `,
 })
 export class FileUpload {
   protected readonly store = inject(TreeStore);
+  protected readonly i18n = inject(LanguageService);
   protected readonly dragging = signal(false);
 
   protected onDragOver(event: DragEvent): void {
