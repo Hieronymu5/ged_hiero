@@ -6,6 +6,7 @@ import { GenerationStepper } from './components/generation-stepper';
 import { LanguageSwitcher } from './components/language-switcher';
 import { PersonSearch } from './components/person-search';
 import { ThemeToggle } from './components/theme-toggle';
+import { ZoomIndicator } from './components/zoom-indicator';
 import { lifespan } from './core/gedcom-parser';
 import { LanguageService } from './core/language.service';
 import { TreeStore } from './core/tree.store';
@@ -14,7 +15,7 @@ import { TreeStore } from './core/tree.store';
   selector: 'app-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    AncestryMap, FileUpload, GenerationChart, GenerationStepper, LanguageSwitcher, PersonSearch, ThemeToggle,
+    AncestryMap, FileUpload, GenerationChart, GenerationStepper, LanguageSwitcher, PersonSearch, ThemeToggle, ZoomIndicator,
   ],
   templateUrl: './app.html',
 })
