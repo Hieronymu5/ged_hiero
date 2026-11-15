@@ -16,7 +16,7 @@ Angular app for exploring GEDCOM (`.ged`) files entirely in the browser:
 ```bash
 npm start          # http://localhost:4200
 npm test           # vitest unit tests
-npm run build
+npm run build      # stamps the build date shown on the file load screen
 ```
 
 ## How places are located

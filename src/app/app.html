@@ -23,6 +23,8 @@
     <h1>{{ i18n.t('welcome.title') }}</h1>
     <p class="lede">{{ i18n.t('welcome.lede') }}</p>
     <app-file-upload />
+    <!-- Which build this is, small in the window's bottom-right corner. -->
+    <p class="version">{{ version() }}</p>
   </main>
 } @else {
   <main class="workspace" [class.has-root]="!!store.root()">

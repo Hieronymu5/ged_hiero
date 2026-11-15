@@ -16,6 +16,8 @@ type Message = string | ((params: any, num: NumberFormat) => string);
 
 const en = {
   'app.title': 'Hiero · GEDCOM explorer',
+  'version.line': (p: { version: string }) => `Version ${p.version}`,
+  'version.built': (p: { version: string; date: string }) => `Version ${p.version} · Built ${p.date}`,
   'lang.aria': 'Language',
 
   'theme.aria': 'Color theme',
@@ -197,6 +199,8 @@ const DUTCH_GENERATIONS = [
 
 const nl: Messages = {
   'app.title': 'Hiero · GEDCOM-verkenner',
+  'version.line': (p) => `Versie ${p.version}`,
+  'version.built': (p) => `Versie ${p.version} · Gebouwd ${p.date}`,
   'lang.aria': 'Taal',
 
   'theme.aria': 'Kleurthema',
